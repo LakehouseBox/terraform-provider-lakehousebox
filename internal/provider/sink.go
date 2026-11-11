@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -118,10 +117,10 @@ func (m *sinkModel) from(ctx context.Context, a *sinkAPI) {
 		m.SQL = types.StringValue(q.Query)
 	}
 	if s, err := seconds(m.Every.ValueString()); err != nil || s != q.EverySeconds {
-		m.Every = types.StringValue(itoa(q.EverySeconds) + "s")
+		m.Every = types.StringValue(dur(q.EverySeconds))
 	}
 	if s, err := seconds(m.Offset.ValueString()); m.Offset.IsNull() && q.OffsetSeconds != 0 || !m.Offset.IsNull() && (err != nil || s != q.OffsetSeconds) {
-		m.Offset = types.StringValue(itoa(q.OffsetSeconds) + "s")
+		m.Offset = types.StringValue(dur(q.OffsetSeconds))
 	}
 	mode := q.Mode
 	if mode == "" {
@@ -140,8 +139,6 @@ func (m *sinkModel) from(ctx context.Context, a *sinkAPI) {
 		m.Key = v
 	}
 }
-
-func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func (r *sinkResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var m sinkModel
@@ -297,7 +294,7 @@ func (r *sinkResource) ImportState(ctx context.Context, req resource.ImportState
 	m := sinkModel{Catalog: types.StringValue(a.WarehouseName), Key: types.ListNull(types.StringType),
 		Offset: types.StringNull(), MinRows: types.Int64Null()}
 	if a.SQL != nil {
-		m.SQL, m.Every = types.StringValue(a.SQL.Query), types.StringValue(itoa(a.SQL.EverySeconds)+"s")
+		m.SQL, m.Every = types.StringValue(a.SQL.Query), types.StringValue(dur(a.SQL.EverySeconds))
 	}
 	m.from(ctx, a)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)

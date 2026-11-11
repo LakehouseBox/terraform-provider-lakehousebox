@@ -21,6 +21,18 @@ func TestSecondsReadsTheAPIsDurations(t *testing.T) {
 	}
 }
 
+// A sink read back after an import spells its schedule as a configuration does, so `every = "15m"` plans no change.
+func TestDurationsReadBackInTheirLargestExactUnit(t *testing.T) {
+	for n, want := range map[int64]string{900: "15m", 3600: "1h", 86400: "1d", 21600: "6h", 1380: "23m", 90: "90s", 0: "0s"} {
+		if got := dur(n); got != want {
+			t.Fatalf("dur(%d) = %q; want %q", n, got, want)
+		}
+		if s, _ := seconds(dur(n)); s != n {
+			t.Fatalf("dur(%d) does not read back", n)
+		}
+	}
+}
+
 // The API's error envelope reaches the user with its code and remedy, and a 404 is told apart (a resource gone
 // outside OpenTofu is removed from state, never an error).
 func TestTheClientRelaysTheErrorEnvelopeAndKnowsA404(t *testing.T) {

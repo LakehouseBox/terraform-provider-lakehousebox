@@ -25,3 +25,12 @@ resource "lakehousebox_sql_connection" "aemet" {
 - `url_prefix` (String) `https://…/`; `kind` (String) `bearer`, `header` or `basic`; `header_name` (String, with
   `header`); `value` (String, Sensitive) never readable back (kept in state as sensitive values are: prefer
   `integration`).
+
+## Import
+
+```shell
+tofu import lakehousebox_sql_connection.aemet 'embalses|aemet'
+```
+
+The value is never readable: the first apply after an import sends the configured `value` in place (a web-key
+connection reads back its key's name). Nothing is deleted, so no sink pauses.

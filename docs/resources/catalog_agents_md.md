@@ -14,3 +14,9 @@ resource "lakehousebox_catalog_agents_md" "embalses" {
   text    = file("docs/AGENTS.md")
 }
 ```
+
+## Import
+
+```shell
+tofu import lakehousebox_catalog_agents_md.md embalses
+```

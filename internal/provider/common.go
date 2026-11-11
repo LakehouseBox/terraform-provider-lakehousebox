@@ -35,3 +35,17 @@ func seconds(v string) (int64, error) {
 	n, _ := strconv.ParseInt(m[1], 10, 64)
 	return n * map[string]int64{"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m[2]], nil
 }
+
+// dur: seconds in the largest unit that divides them exactly (900 -> 15m, 86400 -> 1d, 90 -> 90s), the spelling a
+// configuration most likely uses, so a sink read back after an import plans no change against `every = "15m"`
+func dur(n int64) string {
+	for _, u := range []struct {
+		s string
+		n int64
+	}{{"d", 86400}, {"h", 3600}, {"m", 60}} {
+		if n != 0 && n%u.n == 0 {
+			return strconv.FormatInt(n/u.n, 10) + u.s
+		}
+	}
+	return strconv.FormatInt(n, 10) + "s"
+}

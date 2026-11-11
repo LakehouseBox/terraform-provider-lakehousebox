@@ -17,3 +17,12 @@ resource "lakehousebox_table_description" "readings" {
   columns     = { stored_volume_hm3 = "Water stored, hm³." }
 }
 ```
+
+## Import
+
+```shell
+tofu import lakehousebox_table_description.t 'embalses|raw.readings'
+```
+
+An import reads the table's description and every column description, so a configuration that declares them plans
+no change; one it does not name shows in the plan as a removal.

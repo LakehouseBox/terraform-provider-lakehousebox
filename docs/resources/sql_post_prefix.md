@@ -18,3 +18,9 @@ resource "lakehousebox_sql_post_prefix" "segura" {
 ## Arguments
 
 - `catalog`, `url_prefix` (String, Required): `https://…/`, ending in `/`.
+
+## Import
+
+```shell
+tofu import lakehousebox_sql_post_prefix.api 'embalses|https://example.org/api/'
+```

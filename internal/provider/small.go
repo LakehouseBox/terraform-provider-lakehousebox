@@ -87,6 +87,17 @@ func (r *postPrefixResource) Read(ctx context.Context, req resource.ReadRequest,
 func (r *postPrefixResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
 }
 
+// `tofu import lakehousebox_sql_post_prefix.x '<catalog>|<url_prefix>'`; Read then checks the prefix is declared.
+func (r *postPrefixResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	cat, prefix, ok := splitID(req.ID)
+	if !ok {
+		resp.Diagnostics.AddError("LakehouseBox: import POST prefix", "the id is <catalog>|<url_prefix>, got "+req.ID)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &postPrefixModel{ID: types.StringValue(req.ID),
+		Catalog: types.StringValue(cat), URLPrefix: types.StringValue(prefix)})...)
+}
+
 func (r *postPrefixResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var m postPrefixModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
@@ -206,7 +217,72 @@ func (r *connectionResource) Read(ctx context.Context, req resource.ReadRequest,
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
 
-func (r *connectionResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
+// Update: only `value` changes in place (every other attribute forces a new connection); a new value is sent with PUT,
+// the key rotated without a delete, so the sinks that use the connection are never paused.
+func (r *connectionResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var m, prior connectionModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &m)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// a value first written into state (after an import) is the live one as far as OpenTofu knows: send it, so the
+	// configured secret and the live one agree
+	if !m.Value.IsNull() && !m.Value.Equal(prior.Value) && m.Integration.IsNull() {
+		body := map[string]any{"value": m.Value.ValueString()}
+		if !m.HeaderName.IsNull() && !m.HeaderName.IsUnknown() {
+			body["header_name"] = m.HeaderName.ValueString()
+		}
+		var a connAPI
+		if err := r.c.Do(ctx, "PUT", "/v1/sql/connections/"+url.PathEscape(m.Name.ValueString()),
+			url.Values{"warehouse": {m.Catalog.ValueString()}}, body, &a); err != nil {
+			apiErr(&resp.Diagnostics, "replace the value of connection "+m.Name.ValueString(), err)
+			return
+		}
+		m.from(&a)
+	}
+	m.ID = prior.ID
+	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
+}
+
+// `tofu import lakehousebox_sql_connection.x '<catalog>|<name>'`. The value is never readable: the first apply after an
+// import sends the configured one (PUT, in place). A web-key connection reads back its key's name.
+func (r *connectionResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	cat, name, ok := splitID(req.ID)
+	if !ok {
+		resp.Diagnostics.AddError("LakehouseBox: import connection", "the id is <catalog>|<name>, got "+req.ID)
+		return
+	}
+	var a connAPI
+	if err := r.c.Do(ctx, "GET", "/v1/sql/connections/"+url.PathEscape(name), url.Values{"warehouse": {cat}}, nil, &a); err != nil {
+		apiErr(&resp.Diagnostics, "import connection "+req.ID, err)
+		return
+	}
+	m := connectionModel{ID: types.StringValue(req.ID), Catalog: types.StringValue(cat), Name: types.StringValue(name),
+		Integration: types.StringNull(), URLPrefix: types.StringValue(a.URLPrefix), Value: types.StringNull()}
+	if a.IntegrationID != "" {
+		m.Integration = types.StringValue(r.integrationName(ctx, a.IntegrationID))
+	}
+	m.from(&a)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
+}
+
+// integrationName: a web key's name from its id (what a configuration writes), else the id (the API takes either)
+func (r *connectionResource) integrationName(ctx context.Context, id string) string {
+	var out struct {
+		Integrations []struct {
+			IntegrationID string `json:"integration_id"`
+			Name          string `json:"name"`
+		} `json:"integrations"`
+	}
+	if r.c.Do(ctx, "GET", "/v1/integrations", nil, nil, &out) == nil {
+		for _, i := range out.Integrations {
+			if i.IntegrationID == id {
+				return i.Name
+			}
+		}
+	}
+	return id
 }
 
 func (r *connectionResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -301,6 +377,12 @@ func (r *agentsMDResource) Update(ctx context.Context, req resource.UpdateReques
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
 
+// `tofu import lakehousebox_catalog_agents_md.x <catalog>`; Read then fills the text.
+func (r *agentsMDResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resp.Diagnostics.Append(resp.State.Set(ctx, &agentsMDModel{ID: types.StringValue(req.ID),
+		Catalog: types.StringValue(req.ID), Text: types.StringNull()})...)
+}
+
 func (r *agentsMDResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var m agentsMDModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
@@ -391,15 +473,8 @@ func (r *tableDescResource) Create(ctx context.Context, req resource.CreateReque
 func (r *tableDescResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var m tableDescModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
-	ns, name, _ := strings.Cut(m.Table.ValueString(), ".")
-	var t struct {
-		Doc    string `json:"doc"`
-		Schema []struct {
-			Name string `json:"name"`
-			Doc  string `json:"doc"`
-		} `json:"schema"`
-	}
-	err := r.c.Do(ctx, "GET", "/v1/table", url.Values{"warehouse": {m.Catalog.ValueString()}, "namespace": {ns}, "name": {name}}, nil, &t)
+	var t tableDocs
+	err := r.get(ctx, m.Catalog.ValueString(), m.Table.ValueString(), &t)
 	if NotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -446,6 +521,59 @@ func (r *tableDescResource) Delete(ctx context.Context, req resource.DeleteReque
 	if err := r.patch(ctx, &empty, &m); err != nil && !NotFound(err) {
 		apiErr(&resp.Diagnostics, "remove the descriptions of "+m.Table.ValueString(), err)
 	}
+}
+
+// `tofu import lakehousebox_table_description.x '<catalog>|<namespace>.<table>'`: the table's live description and
+// every column description it has come into state, so a configuration that declares them plans no change. A
+// description the configuration does not name then shows in the plan as one to remove: leave it out of state by
+// naming it, or apply to remove it.
+func (r *tableDescResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	cat, table, ok := splitID(req.ID)
+	if ns, name, dot := strings.Cut(table, "."); !ok || !dot || ns == "" || name == "" {
+		resp.Diagnostics.AddError("LakehouseBox: import table description", "the id is <catalog>|<namespace>.<table>, got "+req.ID)
+		return
+	}
+	var t tableDocs
+	if err := r.get(ctx, cat, table, &t); err != nil {
+		apiErr(&resp.Diagnostics, "import "+req.ID, err)
+		return
+	}
+	m := tableDescModel{ID: types.StringValue(req.ID), Catalog: types.StringValue(cat), Table: types.StringValue(table),
+		Description: types.StringNull(), Columns: types.MapNull(types.StringType)}
+	if t.Doc != "" {
+		m.Description = types.StringValue(t.Doc)
+	}
+	live := map[string]string{}
+	for _, c := range t.Schema {
+		if c.Doc != "" {
+			live[c.Name] = c.Doc
+		}
+	}
+	if len(live) > 0 {
+		v, d := types.MapValueFrom(ctx, types.StringType, live)
+		resp.Diagnostics.Append(d...)
+		m.Columns = v
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
+}
+
+type tableDocs struct {
+	Doc    string `json:"doc"`
+	Schema []struct {
+		Name string `json:"name"`
+		Doc  string `json:"doc"`
+	} `json:"schema"`
+}
+
+func (r *tableDescResource) get(ctx context.Context, cat, table string, t *tableDocs) error {
+	ns, name, _ := strings.Cut(table, ".")
+	return r.c.Do(ctx, "GET", "/v1/table", url.Values{"warehouse": {cat}, "namespace": {ns}, "name": {name}}, nil, t)
+}
+
+// splitID: "<catalog>|<rest>" (a catalog name never holds a |)
+func splitID(id string) (string, string, bool) {
+	a, b, ok := strings.Cut(id, "|")
+	return a, b, ok && a != "" && b != ""
 }
 
 // samePrefix: the API stores a prefix in its canonical form (lower-case host, no :443), so a configured
