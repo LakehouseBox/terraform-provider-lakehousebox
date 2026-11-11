@@ -42,3 +42,13 @@ Tables are not resources: they come from migrations (`lhbox migrate`, see the
 never its table or rows; destroying a catalog needs `deletion_protection = false` and starts a 7-day grace period.
 
 Import: `tofu import lakehousebox_catalog.x <catalog id or name>`, `tofu import lakehousebox_sql_sink.x <sink id>`.
+
+## Verifying a release
+
+Every release's `SHA256SUMS` is signed by the LakehouseBox release key, `LakehouseBox Releases <hello@lakehousebox.com>`,
+fingerprint `E9E697A1BC3E16F8610981022482DD07987BFD49` ([lakehousebox-release-key.asc](lakehousebox-release-key.asc)):
+
+```shell
+gpg --import lakehousebox-release-key.asc
+gpg --verify terraform-provider-lakehousebox_0.1.0_SHA256SUMS.sig terraform-provider-lakehousebox_0.1.0_SHA256SUMS
+```
