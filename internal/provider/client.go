@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -103,6 +104,12 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 }
 
 func newClient(endpoint, key, version string) *Client {
-	return &Client{Endpoint: endpoint, APIKey: key, HTTP: &http.Client{Timeout: 5 * time.Minute},
+	// Offer only X25519 and P-256 key shares: Go's default ClientHello adds the post-quantum X25519MLKEM768 share
+	// (~1.2 kB), which no longer fits in one packet and is lost on paths with an MTU black hole, such as GitHub-hosted
+	// runners to our edge (tablemere#2598, lakehousebox#33: "TLS handshake timeout"). Same effect as
+	// GODEBUG=tlsmlkem=0. Revert once the edge clamps the TCP MSS.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256}}
+	return &Client{Endpoint: endpoint, APIKey: key, HTTP: &http.Client{Timeout: 5 * time.Minute, Transport: tr},
 		UA: "terraform-provider-lakehousebox/" + version}
 }
