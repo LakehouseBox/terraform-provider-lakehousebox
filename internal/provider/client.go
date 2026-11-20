@@ -42,7 +42,7 @@ func (e *APIError) Error() string {
 // a route the deployment does not serve (sinks or scheduled SQL off, a wrong endpoint): never read as gone, or every
 // resource would drop out of state on a refresh (high review of #3032).
 var goneCodes = map[string]bool{"sink_not_found": true, "connection_not_found": true, "warehouse_not_found": true,
-	"warehouse_deleted": true, "table_not_found": true, "namespace_not_found": true, "post_prefix_not_found": true}
+	"warehouse_deleted": true, "table_not_found": true, "namespace_not_found": true, "post_prefix_not_found": true, "source_not_found": true}
 
 // NotFound is a 404 of the API naming the resource as gone.
 func NotFound(err error) bool {

@@ -89,6 +89,27 @@ func TestOnlyAResourcesOwn404IsGone(t *testing.T) {
 	}
 }
 
+// A connection's folder and host are stored canonically (exports -> exports/, https:// and :443 dropped, lower case): a
+// configured spelling that means the same must not plan a replacement on every refresh, and another folder must.
+func TestAConnectionsFolderAndHostMatchTheirCanonicalForm(t *testing.T) {
+	if !sameFolder("exports", "exports/") || !sameEndpoint("https://S3.us-west-2.amazonaws.com:443/", "s3.us-west-2.amazonaws.com") {
+		t.Fatal("the same folder and host in another spelling must match")
+	}
+	if sameFolder("exports", "exports2/") || sameEndpoint("s3.eu-west-1.amazonaws.com", "s3.us-west-2.amazonaws.com") ||
+		sameEndpoint("minio.example:9000", "minio.example") {
+		t.Fatal("another folder, host or port is another connection")
+	}
+	m := sourceConnModel{Endpoint: types.StringValue("https://s3.us-west-2.amazonaws.com"), Prefix: types.StringValue("release/x")}
+	m.from(&sourceConnAPI{Endpoint: "s3.us-west-2.amazonaws.com", Port: 443, Prefix: "release/x/", Type: "s3", Region: "us-west-2",
+		Bucket: "b", URLStyle: "path", UseAccess: "owner", State: "active"})
+	if m.Endpoint.ValueString() != "https://s3.us-west-2.amazonaws.com" || m.Prefix.ValueString() != "release/x" {
+		t.Fatalf("the configured spelling stays: %v %v", m.Endpoint, m.Prefix)
+	}
+	if !NotFound(&APIError{Status: 404, Code: "source_not_found"}) {
+		t.Fatal("a detached source is gone from state")
+	}
+}
+
 // The API keeps a prefix in its canonical form: a configured spelling that means the same is the same prefix (else the
 // POST prefix would drop out of state on every refresh and be declared again, 409).
 func TestAPrefixMatchesItsCanonicalForm(t *testing.T) {
