@@ -23,6 +23,23 @@ resource "lakehousebox_connection" "overture" {
 }
 ```
 
+A Google Cloud Storage bucket is read the same way, with an HMAC key of a service account that can only read:
+
+```terraform
+resource "lakehousebox_connection" "exports" {
+  org               = "acme"
+  name              = "exports"
+  endpoint          = "storage.googleapis.com"
+  region            = "auto"
+  bucket            = "acme-exports"
+  prefix            = "daily"
+  access_key_id     = var.gcs_hmac_access_id
+  secret_access_key = var.gcs_hmac_secret
+}
+```
+
+The guide for each kind of store: <https://lakehousebox.com/docs/connected-catalogs/>.
+
 ## Arguments
 
 - `org` (String, Required) The organisation's handle or id. `name` (String, Required) Lower case letters, digits and `_`.

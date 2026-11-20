@@ -1,4 +1,4 @@
-# A connected catalog: Overture Maps' public release, read where it lives (the organisation's `sources` switch on).
+# A connected catalog: Overture Maps' public release, read where it lives.
 # Applied against production in a QA account on 2026-11-19 (2 created, 15 tables, a second plan with no changes).
 terraform {
   required_providers {

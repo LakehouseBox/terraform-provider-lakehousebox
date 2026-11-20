@@ -1,7 +1,7 @@
 package provider
 
-// Connections and the sources attached from them (PLAN 42; the API's plane/sources.py, behind the organisation's
-// `sources` switch): a connection is a stored login to another system (an S3-compatible bucket today, or a public one
+// Connections and the sources attached from them (PLAN 42; the API's plane/sources.py; on for every organisation since
+// 2026-11-20): a connection is a stored login to another system (an S3-compatible bucket today, or a public one
 // with no key), owned by its maker and private until shared; a source is a connection attached under a name, read in
 // SQL as <source>.<schema>.<table> ("connected catalog" on the account page).
 
