@@ -120,3 +120,69 @@ func TestAPrefixMatchesItsCanonicalForm(t *testing.T) {
 		t.Fatal("another port or path is another prefix")
 	}
 }
+
+// lakehousebox_org_agent_settings: an apply sends the three settings to the organisation's route, a read keeps the
+// configuration's spelling of instructions the API stored trimmed (no change planned for a file's trailing newline),
+// and a destroy switches every model back on and clears the default and the instructions.
+func TestOrgAgentSettingsSendsReadsAndResets(t *testing.T) {
+	var got []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/orgs/acme/agent-settings" {
+			w.WriteHeader(404)
+			return
+		}
+		if r.Method == "PATCH" {
+			var b map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			got = append(got, b)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"org_id": "org-1", "default_model": "a",
+			"models":       []map[string]any{{"model": "a", "allowed": true}, {"model": "b", "allowed": false}},
+			"instructions": map[string]any{"text": "Euros."}})
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	r := &orgAgentsResource{c: newClient(srv.URL, "k1", "test")}
+	ms, _ := types.SetValueFrom(ctx, types.StringType, []string{"a"})
+	m := orgAgentsModel{Org: types.StringValue("acme"), Models: ms, DefaultModel: types.StringValue("a"),
+		Instructions: types.StringValue("Euros.\n")}
+	out, err := r.patch(ctx, &m, &m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0]["default_model"] != "a" || got[0]["instructions"] != "Euros.\n" || len(got[0]["models"].([]any)) != 1 {
+		t.Fatalf("sent %v", got)
+	}
+	m.fill(ctx, out)
+	if m.Instructions.ValueString() != "Euros.\n" || m.ID.ValueString() != "org-1" {
+		t.Fatalf("read back %v / %v", m.Instructions, m.ID)
+	}
+	var on []string
+	m.Models.ElementsAs(ctx, &on, false)
+	if len(on) != 1 || on[0] != "a" {
+		t.Fatalf("models read back %v", on)
+	}
+	// left out of the configuration: models and the default are not sent, even when the plan carries the state's
+	// values over (high review of #4021), and the instructions are removed
+	none := orgAgentsModel{Org: types.StringValue("acme"), Models: types.SetNull(types.StringType),
+		DefaultModel: types.StringNull(), Instructions: types.StringNull()}
+	if _, err := r.patch(ctx, &m, &none); err != nil {
+		t.Fatal(err)
+	}
+	_, hasModels := got[1]["models"]
+	_, hasDefault := got[1]["default_model"]
+	if hasModels || hasDefault || got[1]["instructions"] != nil {
+		t.Fatalf("sent %v", got[1])
+	}
+	// a blank text, stored as none, keeps the configuration's value: no inconsistent result after apply
+	blank := orgAgentsModel{Instructions: types.StringValue("\n")}
+	blank.fill(ctx, &orgAgentsAPI{OrgID: "org-1"})
+	if blank.Instructions.ValueString() != "\n" {
+		t.Fatalf("blank read back %v", blank.Instructions)
+	}
+	// a deleted organisation is gone (state emptied), a bare not_found (a wrong endpoint) is not
+	if !orgGone(&APIError{Status: 404, Code: "org_not_found"}) || orgGone(&APIError{Status: 404, Code: "not_found"}) {
+		t.Fatal("org_not_found is gone; a bare not_found is not")
+	}
+}

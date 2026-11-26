@@ -36,6 +36,7 @@ resource "lakehousebox_sql_sink" "rain_grid" {
 | `lakehousebox_sql_post_prefix` | a URL prefix the catalog's scheduled SQL may POST to |
 | `lakehousebox_catalog_agents_md` | the catalog's AGENTS.md |
 | `lakehousebox_table_description` | a table's description and its columns' |
+| `lakehousebox_org_agent_settings` | the models an organisation's hosted agents may use, the default model, and the instructions every agent is given (a key with the admin role; 0.3.0) |
 
 Tables are not resources: they come from migrations (`lhbox migrate`, see the
 [docs](https://lakehousebox.com/docs/migrations/)), so no apply ever drops a table. Destroying a sink deletes the sink,
@@ -44,7 +45,7 @@ never its table or rows; destroying a catalog needs `deletion_protection = false
 Import (every resource, 0.1.1 and later): `lakehousebox_catalog` by id or name, `lakehousebox_sql_sink` by sink id,
 `lakehousebox_catalog_agents_md` by catalog, and `'<catalog>|<name>'` for `lakehousebox_sql_connection`,
 `'<catalog>|<url_prefix>'` for `lakehousebox_sql_post_prefix`, `'<catalog>|<namespace>.<table>'` for
-`lakehousebox_table_description`.
+`lakehousebox_table_description`, and `lakehousebox_org_agent_settings` by the organisation's handle or id.
 
 ## Verifying a release
 

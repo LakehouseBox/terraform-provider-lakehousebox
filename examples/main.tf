@@ -7,6 +7,7 @@ provider "lakehousebox" {}
 
 variable "every" { default = "1h" }
 variable "protect" { default = true }
+variable "org" { default = "acme" }
 
 resource "lakehousebox_catalog" "lab" {
   name                   = "tofu_qa"
@@ -41,4 +42,12 @@ resource "lakehousebox_table_description" "const" {
   table       = lakehousebox_sql_sink.const.table
   description = "Constant rows (provider test)."
   columns     = { n = "A number.", label = "A label." }
+}
+
+# what every hosted agent and analyst of the organisation may use and is told (a key with the admin role)
+resource "lakehousebox_org_agent_settings" "agents" {
+  org           = var.org
+  models        = ["deepseek-v4-flash", "qwen3.6-35b"]
+  default_model = "deepseek-v4-flash"
+  instructions  = "Amounts are in euros, without VAT."
 }

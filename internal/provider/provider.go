@@ -70,7 +70,8 @@ func (p *lhProvider) Configure(ctx context.Context, req provider.ConfigureReques
 
 func (p *lhProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{newCatalogResource, newPostPrefixResource, newConnectionResource,
-		newSinkResource, newAgentsMDResource, newTableDescriptionResource, newSourceConnectionResource, newSourceResource}
+		newSinkResource, newAgentsMDResource, newTableDescriptionResource, newSourceConnectionResource, newSourceResource,
+		newOrgAgentSettingsResource}
 }
 
 func (p *lhProvider) DataSources(_ context.Context) []func() datasource.DataSource {
