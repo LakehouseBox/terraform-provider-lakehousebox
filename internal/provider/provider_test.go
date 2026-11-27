@@ -4,6 +4,10 @@ import (
 	"context"
 
 	"encoding/json"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"net/http"
 	"net/http/httptest"
@@ -184,5 +188,49 @@ func TestOrgAgentSettingsSendsReadsAndResets(t *testing.T) {
 	// a deleted organisation is gone (state emptied), a bare not_found (a wrong endpoint) is not
 	if !orgGone(&APIError{Status: 404, Code: "org_not_found"}) || orgGone(&APIError{Status: 404, Code: "not_found"}) {
 		t.Fatal("org_not_found is gone; a bare not_found is not")
+	}
+}
+
+// default_model left out of the configuration: the plan keeps the state's while the planned models allow it, and is
+// unknown once they switch it off, since the API then answers another model (tablemere#4064: an apply that switched the
+// deployment's default off failed with "Provider produced inconsistent result after apply").
+func TestALeftOutDefaultModelIsPlannedUnknownOnceTheModelsSwitchItOff(t *testing.T) {
+	ctx := context.Background()
+	var sr resource.SchemaResponse
+	(&orgAgentsResource{}).Schema(ctx, resource.SchemaRequest{}, &sr)
+	plan := func(models []string) planmodifier.StringResponse {
+		ms, _ := types.SetValueFrom(ctx, types.StringType, models)
+		p := tfsdk.Plan{Schema: sr.Schema}
+		p.Set(ctx, orgAgentsModel{Org: types.StringValue("acme"), Models: ms, DefaultModel: types.StringUnknown(),
+			ID: types.StringValue("org-1"), Instructions: types.StringNull()})
+		req := planmodifier.StringRequest{Path: path.Root("default_model"), Plan: p, PlanValue: types.StringUnknown(),
+			ConfigValue: types.StringNull(), StateValue: types.StringValue("deepseek-v4-flash")}
+		resp := planmodifier.StringResponse{PlanValue: req.PlanValue}
+		defaultWhileAllowed{}.PlanModifyString(ctx, req, &resp)
+		return resp
+	}
+	if got := plan([]string{"deepseek-v4-flash", "qwen3.6-35b"}).PlanValue; got.ValueString() != "deepseek-v4-flash" {
+		t.Fatalf("still allowed: planned %v, want the state's", got)
+	}
+	if got := plan([]string{"qwen3.6-35b"}).PlanValue; !got.IsUnknown() {
+		t.Fatalf("switched off: planned %v, want unknown (the apply answers another model)", got)
+	}
+	// models left out as well (unknown in the plan the modifier reads): the state's models decide, and allow it
+	ms, _ := types.SetValueFrom(ctx, types.StringType, []string{"deepseek-v4-flash"})
+	m := orgAgentsModel{Org: types.StringValue("acme"), Models: types.SetUnknown(types.StringType),
+		DefaultModel: types.StringUnknown(), ID: types.StringValue("org-1"), Instructions: types.StringNull()}
+	p, cp, st := tfsdk.Plan{Schema: sr.Schema}, tfsdk.Plan{Schema: sr.Schema}, tfsdk.State{Schema: sr.Schema}
+	p.Set(ctx, m)
+	m.Models, m.DefaultModel = types.SetNull(types.StringType), types.StringNull()
+	cp.Set(ctx, m)
+	c := tfsdk.Config{Schema: sr.Schema, Raw: cp.Raw}
+	m.Models, m.DefaultModel = ms, types.StringValue("deepseek-v4-flash")
+	st.Set(ctx, m)
+	req := planmodifier.StringRequest{Path: path.Root("default_model"), Plan: p, Config: c, State: st,
+		PlanValue: types.StringUnknown(), ConfigValue: types.StringNull(), StateValue: types.StringValue("deepseek-v4-flash")}
+	resp := planmodifier.StringResponse{PlanValue: req.PlanValue}
+	defaultWhileAllowed{}.PlanModifyString(ctx, req, &resp)
+	if resp.PlanValue.ValueString() != "deepseek-v4-flash" {
+		t.Fatalf("models left out: planned %v, want the state's", resp.PlanValue)
 	}
 }

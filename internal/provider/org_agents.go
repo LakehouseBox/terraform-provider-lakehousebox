@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -62,7 +63,7 @@ func (r *orgAgentsResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()}},
 			"default_model": schema.StringAttribute{Optional: true, Computed: true,
 				Description:   "The model a new agent gets and every analyst runs on; one of `models`. Left out: whatever is set now.",
-				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+				PlanModifiers: []planmodifier.String{defaultWhileAllowed{}}},
 			"instructions": schema.StringAttribute{Optional: true,
 				Description: "Given to every agent and analyst after LakehouseBox's own rules and before its task, 4,000 " +
 					"characters at most; file(\"agents/instructions.md\"). Left out: none."},
@@ -210,5 +211,50 @@ func (r *orgAgentsResource) Delete(ctx context.Context, req resource.DeleteReque
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
 	if err := r.reset(ctx, m.Org.ValueString()); err != nil {
 		apiErr(&resp.Diagnostics, "reset the organisation's agent settings", err)
+	}
+}
+
+// defaultWhileAllowed plans a left-out default_model as the state's only while the planned models still allow it. The
+// API answers the stored default, or the deployment's while it is on, else the first model allowed: a models change that
+// switches the state's default off plans it unknown, never a value the apply then contradicts ("Provider produced
+// inconsistent result after apply", tablemere#4064).
+type defaultWhileAllowed struct{}
+
+func (defaultWhileAllowed) Description(context.Context) string {
+	return "the state's default model while the planned models allow it"
+}
+func (defaultWhileAllowed) MarkdownDescription(context.Context) string {
+	return "the state's default model while the planned models allow it"
+}
+func (defaultWhileAllowed) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.StateValue.IsNull() || !req.PlanValue.IsUnknown() {
+		return
+	}
+	var planModels types.Set
+	if req.Plan.GetAttribute(ctx, path.Root("models"), &planModels).HasError() {
+		return
+	}
+	if planModels.IsUnknown() {
+		// models left out too: its own UseStateForUnknown has not run in the plan this modifier reads, and it plans
+		// the state's models, so those are the ones to compare with
+		var configModels types.Set
+		if req.Config.GetAttribute(ctx, path.Root("models"), &configModels).HasError() || !configModels.IsNull() ||
+			req.State.GetAttribute(ctx, path.Root("models"), &planModels).HasError() || planModels.IsUnknown() {
+			return
+		}
+	}
+	if planModels.IsNull() {
+		resp.PlanValue = req.StateValue
+		return
+	}
+	var on []string
+	if planModels.ElementsAs(ctx, &on, false).HasError() {
+		return
+	}
+	for _, m := range on {
+		if m == req.StateValue.ValueString() {
+			resp.PlanValue = req.StateValue
+			return
+		}
 	}
 }
